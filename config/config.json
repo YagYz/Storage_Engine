@@ -1,0 +1,14 @@
+{
+    "server": {
+        "port": 8080,
+        "db_path": "data/okul.dat"
+    },
+    "auth": {
+        "admin_user": "admin",
+        "admin_pass": "admin123"
+    },
+    "logging": {
+        "file_path": "logs/server.log",
+        "level": "INFO"
+    }
+}

@@ -1,0 +1,11 @@
+# Derleme Ciktilari
+server
+*.o
+*.out
+
+# Veri ve Loglar
+data/*.dat
+logs/*.log
+
+# VS Code Ayarlari
+.vscode/
