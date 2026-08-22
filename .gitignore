@@ -1,11 +1,25 @@
-# Derleme Ciktilari
+# Build ve Derleme Çıktıları
+build/
+bin/
+out/
+cmake-build-*/
 server
+app
 *.o
 *.out
+*.so
+*.a
 
-# Veri ve Loglar
-data/*.dat
-logs/*.log
+# Veri Dosyaları ve Loglar
+data/
+logs/
+*.dat
+*.log
 
-# VS Code Ayarlari
+# IDE ve Editör Dosyaları
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
