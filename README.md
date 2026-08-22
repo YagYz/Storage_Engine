@@ -22,29 +22,18 @@ Storage Engine; sıralı disk I/O (append-only log) kullanarak hızlı yazma sa�
 ```
 Storage_Engine/
 ├── CMakeLists.txt        # CMake derleme yapılandırması
-├── ROADMAP.md            # Adım adım geliştirme yol haritası
 ├── README.md             # Proje dokümantasyonu
 ├── config/
 │   └── config.json       # Sunucu ve veritabanı ayarları
 ├── include/              # Header (.hpp) dosyaları
 │   ├── ConfigManager.hpp # Konfigürasyon yöneticisi
+│   ├── DataFile.hpp      # Append-only disk I/O yöneticisi
 │   ├── Logger.hpp        # Thread-safe loglama
-│   └── StorageCore.hpp   # Temel depolama motoru
+│   ├── Record.hpp        # Binary kayıt formatı
+│   └── StorageEngine.hpp # Ana depolama motoru
 └── src/                  # Kaynak (.cpp) kodları
     └── main.cpp          # Giriş noktası
 ```
-
----
-
-## 🗺️ Geliştirme Yol Haritası
-
-Detaylı fazlar ve adım adım yapılacaklar için [ROADMAP.md](ROADMAP.md) dosyasına göz atabilirsiniz:
-1. **Faz 1:** CMake & Temel Altyapı
-2. **Faz 2:** Binary Kayıt Formatı & Append-Only Log
-3. **Faz 3:** Bellek İçi İndeks (KeyDir) & CRUD
-4. **Faz 4:** Eşzamanlılık & Thread-Safety
-5. **Faz 5:** Veri Sıkıştırma (Compaction)
-6. **Faz 6:** CLI & Mini-Redis Ağ Katmanı
 
 ---
 
@@ -58,5 +47,5 @@ cmake -B build
 cmake --build build
 
 # Çalıştır
-./build/StorageEngine
+./build/app
 ```
