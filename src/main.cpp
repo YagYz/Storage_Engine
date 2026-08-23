@@ -1,7 +1,5 @@
 #include <iostream>
-    #include <vector>
-    #include <thread>
-    #include <chrono>
+    #include <filesystem>
     #include "StorageEngine.hpp"
     #include "Logger.hpp"
     
@@ -10,65 +8,51 @@
         logger.init("logs/server.log");
     
         std::cout << "==========================================" << std::endl;
-        std::cout << "  STORAGE ENGINE MULTI-THREAD STRES TESTI " << std::endl;
+        std::cout << "     STORAGE ENGINE COMPACTION TESTI      " << std::endl;
         std::cout << "==========================================" << std::endl;
     
+        std::string dbPath = "data/compact_test.dat";
+        std::filesystem::remove(dbPath); // Varsa eski testi temizle
+    
         StorageEngine engine;
-        if (!engine.open("data/stress.dat")) {
+        if (!engine.open(dbPath)) {
             std::cerr << "Motor acilamadi!" << std::endl;
             return -1;
         }
     
-        std::vector<std::thread> threads;
-        const int NUM_WRITERS = 4;
-        const int NUM_READERS = 4;
-        const int OPS_PER_THREAD = 500;
-    
-        std::cout << "[*] " << NUM_WRITERS << " Yazici ve " << NUM_READERS 
-                  << " Okuyucu thread baslatiliyor (" << OPS_PER_THREAD << " islem/thread)..." << std::endl;
-    
-        auto startTime = std::chrono::high_resolution_clock::now();
-    
-        // 1. Yazıcı Thread'leri Başlat
-        for (int t = 0; t < NUM_WRITERS; ++t) {
-            threads.emplace_back([&engine, t, OPS_PER_THREAD]() {
-                for (int i = 0; i < OPS_PER_THREAD; ++i) {
-                    std::string key = "th_" + std::to_string(t) + "_k_" + std::to_string(i);
-                    std::string val = "Deger_Payload_" + std::to_string(i * 10);
-                    engine.put(key, val);
-                }
-            });
+        // 1. Aynı key'e 1000 kez güncelleme basıyoruz (Diski şişiriyoruz)
+        std::cout << "[*] 'user:1' anahtarina 1000 adet guncelleme yaziliyor..." << std::endl;
+        for (int i = 0; i < 1000; ++i) {
+            engine.put("user:1", "Guncelleme_No_" + std::to_string(i));
         }
-    
-        // 2. Okuyucu Thread'leri Başlat
-        for (int t = 0; t < NUM_READERS; ++t) {
-            threads.emplace_back([&engine, t, OPS_PER_THREAD]() {
-                for (int i = 0; i < OPS_PER_THREAD; ++i) {
-                    std::string key = "th_" + std::to_string(t) + "_k_" + std::to_string(i);
-                    std::string val;
-                    engine.get(key, val); // Bulsa da bulmasa da oku
-                }
-            });
+        // Silinmiş bir çöp veri ekleyelim
+        engine.put("silinecek_key", "Bu cop veri silinecek");
+        engine.remove("silinecek_key");
+
+        uintmax_t sizeBefore = std::filesystem::file_size(dbPath);
+        std::cout << "[+] Compaction Oncesi Dosya Boyutu: " << sizeBefore << " bytes" << std::endl;
+
+        // 2. Compaction (Sıkıştırma) Çalıştır
+        std::cout << "\n[*] Compaction calistiriliyor..." << std::endl;
+        if (engine.compact()) {
+            std::cout << "[+] Compaction basarili!" << std::endl;
+        } else {
+            std::cerr << "[-] Compaction basarisiz oldu!" << std::endl;
         }
 
-        // 3. Tüm thread'lerin bitmesini bekle (join)
-        for (auto& th : threads) {
-            if (th.joinable()) {
-                th.join();
-            }
+        // 3. Yeni dosya boyutunu ölç
+        uintmax_t sizeAfter = std::filesystem::file_size(dbPath);
+        std::cout << "[+] Compaction Sonrasi Dosya Boyutu: " << sizeAfter << " bytes" << std::endl;
+        std::cout << "[🔥] Disk Tasarrufu: %" << (100 - (sizeAfter * 100 / sizeBefore)) << " yer kazanildi!" << std::endl;
+
+        // 4. Veri sağlam mı kontrol et
+        std::string val;
+        if (engine.get("user:1", val)) {
+            std::cout << "\n[+] Guncel Veri Dogrulandi: user:1 -> " << val << std::endl;
         }
 
-        auto endTime = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
-
-        std::cout << "\n[🎉] Stres Testi Basariyla Tamamlandi!" << std::endl;
-        std::cout << "Toplam Sure: " << duration << " ms" << std::endl;
-        std::cout << "Toplam Eklenen Kayit: " << (NUM_WRITERS * OPS_PER_THREAD) << std::endl;
-
-        // Son Kontrol: Rastgele bir kaydı oku
-        std::string testVal;
-        if (engine.get("th_0_k_100", testVal)) {
-            std::cout << "[+] Ornek Kayit Dogrulandi: th_0_k_100 -> " << testVal << std::endl;
+        if (!engine.contains("silinecek_key")) {
+            std::cout << "[+] Silinen cop verinin kompakt dosyaya GECMEDIGI dogrulandi." << std::endl;
         }
 
         engine.close();

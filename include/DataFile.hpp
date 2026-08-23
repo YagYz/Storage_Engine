@@ -25,6 +25,7 @@ public:
     bool readRecord(uint64_t offset, Record& outRecord);
     void close();
 
+    const std::string& getFilePath() const { return filePath; }
     uint64_t getWriteOffset() const { return writeOffset; }
 
 };

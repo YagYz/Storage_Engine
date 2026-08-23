@@ -36,6 +36,7 @@ public:
     bool get(const std::string& key, std::string& outValue);
     bool remove(const std::string& key);
     bool contains(const std::string& key) const;
+    bool compact();
     void close();
 };
 
@@ -147,6 +148,42 @@ bool StorageEngine::contains(const std::string& key) const {
     if (keyDir.count(key) > 0) {
         return true;
     } else { return false; }
+
+}
+
+bool StorageEngine::compact() {
+
+    if (!isReady) { return false; }
+
+    std::unique_lock<std::shared_mutex> lock(rwMutex);
+    DataFile compactFile;
+    std::string dbPath = dataFile.getFilePath();
+    std::string tempPath = dbPath + ".compact";
+
+    if (!compactFile.open(tempPath)) {
+        return false;
+    }
+
+    for (auto& [key, entry] : keyDir) {
+        Record rec;
+        if (dataFile.readRecord(entry.offset, rec)) {
+            uint64_t newOffset = compactFile.appendRecord(rec);
+            entry.offset = newOffset;
+        }
+    }
+
+    dataFile.close();
+    compactFile.close();
+    
+    std::filesystem::rename(tempPath, dbPath);
+
+    if (!dataFile.open(dbPath)) {
+        isReady = false;
+        return false;
+    }
+
+    Logger::getInstance().log(LogLevel::INFO, "Compaction basariyla tamamladi.");
+    return true;
 
 }
 
