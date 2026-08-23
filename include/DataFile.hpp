@@ -5,6 +5,7 @@
 #include <fstream>
 #include <string>
 #include <filesystem>
+#include <mutex>
 #include "Record.hpp"
 #include "Logger.hpp"
 
@@ -12,6 +13,7 @@ class DataFile {
 private:
     std::string filePath;
     std::fstream file;
+    std::mutex fileMutex;
     uint64_t writeOffset{0};
 
 public:
@@ -69,6 +71,8 @@ uint64_t DataFile::appendRecord(const Record& record) {
         return false;
     }
 
+    std::lock_guard<std::mutex> lock(fileMutex);
+
     uint64_t currectOffset = writeOffset;
 
     file.seekp(currectOffset, std::ios::beg);
@@ -92,6 +96,10 @@ bool DataFile::readRecord(uint64_t offset, Record& outRecord) {
         Logger::getInstance().log(LogLevel::ERROR, "Database Acik Degil!");
         return false;
     }
+
+    std::lock_guard<std::mutex> lock(fileMutex);
+
+    file.clear();
 
     file.seekg(offset, std::ios::beg);
 

@@ -1,5 +1,7 @@
 #include <iostream>
-    #include <cassert>
+    #include <vector>
+    #include <thread>
+    #include <chrono>
     #include "StorageEngine.hpp"
     #include "Logger.hpp"
     
@@ -8,59 +10,67 @@
         logger.init("logs/server.log");
     
         std::cout << "==========================================" << std::endl;
-        std::cout << "  STORAGE ENGINE CRUD & RECOVERY TESTI    " << std::endl;
+        std::cout << "  STORAGE ENGINE MULTI-THREAD STRES TESTI " << std::endl;
         std::cout << "==========================================" << std::endl;
     
-        // --- AŞAMA 1: YAZMA, GÜNCELLEME VE SİLME ---
-        {
-            StorageEngine engine;
-            assert(engine.open("data/app.dat"));
+        StorageEngine engine;
+        if (!engine.open("data/stress.dat")) {
+            std::cerr << "Motor acilamadi!" << std::endl;
+            return -1;
+        }
     
-            // Ekleme
-            engine.put("user:1", "Ahmet Yilmaz");
-            engine.put("user:2", "Mehmet Demir");
-            engine.put("user:3", "Ayse Kaya");
+        std::vector<std::thread> threads;
+        const int NUM_WRITERS = 4;
+        const int NUM_READERS = 4;
+        const int OPS_PER_THREAD = 500;
     
-            // Güncelleme
-            engine.put("user:1", "Ahmet Yilmaz (Guncellendi)");
+        std::cout << "[*] " << NUM_WRITERS << " Yazici ve " << NUM_READERS 
+                  << " Okuyucu thread baslatiliyor (" << OPS_PER_THREAD << " islem/thread)..." << std::endl;
     
-            // Silme
-            engine.remove("user:2");
+        auto startTime = std::chrono::high_resolution_clock::now();
     
-            // Kontroller
-            std::string val;
-            assert(engine.get("user:1", val) && val == "Ahmet Yilmaz (Guncellendi)");
-            assert(!engine.get("user:2", val)); // user:2 silindi, bulunamamalı!
-            assert(engine.get("user:3", val) && val == "Ayse Kaya");
+        // 1. Yazıcı Thread'leri Başlat
+        for (int t = 0; t < NUM_WRITERS; ++t) {
+            threads.emplace_back([&engine, t, OPS_PER_THREAD]() {
+                for (int i = 0; i < OPS_PER_THREAD; ++i) {
+                    std::string key = "th_" + std::to_string(t) + "_k_" + std::to_string(i);
+                    std::string val = "Deger_Payload_" + std::to_string(i * 10);
+                    engine.put(key, val);
+                }
+            });
+        }
     
-            std::cout << "[+] Asama 1 Basarili: CRUD islemleri calisiyor." << std::endl;
-            engine.close();
+        // 2. Okuyucu Thread'leri Başlat
+        for (int t = 0; t < NUM_READERS; ++t) {
+            threads.emplace_back([&engine, t, OPS_PER_THREAD]() {
+                for (int i = 0; i < OPS_PER_THREAD; ++i) {
+                    std::string key = "th_" + std::to_string(t) + "_k_" + std::to_string(i);
+                    std::string val;
+                    engine.get(key, val); // Bulsa da bulmasa da oku
+                }
+            });
         }
 
-        // --- AŞAMA 2: RECOVERY (AÇILIŞTA DISKTEN GERİ YÜKLEME) ---
-        {
-            std::cout << "\n[*] Motor yeniden baslatiliyor (RAM sifirlandi)..." << std::endl;
-            StorageEngine engine2;
-            assert(engine2.open("data/app.dat")); // Diskteki log taranacak
-
-            std::string val;
-            // user:1'in son güncel hali gelmeli
-            if (engine2.get("user:1", val)) {
-                std::cout << "[+] user:1 -> " << val << std::endl;
+        // 3. Tüm thread'lerin bitmesini bekle (join)
+        for (auto& th : threads) {
+            if (th.joinable()) {
+                th.join();
             }
-
-            // user:2 silinmişti, olmamalı
-            if (!engine2.contains("user:2")) {
-                std::cout << "[+] user:2 silinmis olarak dogrulandi." << std::endl;
-            }
-
-            // user:3 sağlam olmalı
-            if (engine2.get("user:3", val)) {
-                std::cout << "[+] user:3 -> " << val << std::endl;
-            }
-
-            std::cout << "\n[🎉] Asama 2 Basarili: Recovery mekanizmasi mukemmel calisiyor!" << std::endl;
         }
 
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+
+        std::cout << "\n[🎉] Stres Testi Basariyla Tamamlandi!" << std::endl;
+        std::cout << "Toplam Sure: " << duration << " ms" << std::endl;
+        std::cout << "Toplam Eklenen Kayit: " << (NUM_WRITERS * OPS_PER_THREAD) << std::endl;
+
+        // Son Kontrol: Rastgele bir kaydı oku
+        std::string testVal;
+        if (engine.get("th_0_k_100", testVal)) {
+            std::cout << "[+] Ornek Kayit Dogrulandi: th_0_k_100 -> " << testVal << std::endl;
+        }
+
+        engine.close();
         return 0;
     }

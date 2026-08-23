@@ -4,6 +4,8 @@
 #include <string>
 #include <unordered_map>
 #include <iostream>
+#include <shared_mutex>
+#include <mutex>
 #include "DataFile.hpp"
 #include "Record.hpp"
 #include "Logger.hpp"
@@ -21,6 +23,8 @@ private:
     std::unordered_map<std::string, IndexEntry> keyDir;
     bool isReady{false};
 
+    mutable std::shared_mutex rwMutex;
+
     void buildKeyDir();
 
 public:
@@ -36,7 +40,9 @@ public:
 };
 
 bool StorageEngine::open(const std::string& dbPath) {
-    dataFile.open(dbPath);
+    std::unique_lock<std::shared_mutex> lock(rwMutex);
+
+    if (!dataFile.open(dbPath)) { return false; }
     buildKeyDir();
     isReady = true;
     return true;
@@ -76,6 +82,8 @@ bool StorageEngine::put(const std::string& key, const std::string& value) {
         return false;
     }
 
+    std::unique_lock<std::shared_mutex> lock(rwMutex);
+
     Record r = Record::create(key, value);
 
     uint64_t offset = dataFile.appendRecord(r);
@@ -95,13 +103,17 @@ bool StorageEngine::get(const std::string& key, std::string& outValue) {
         return false;
     }
 
+    std::shared_lock<std::shared_mutex> lock(rwMutex);
+
     if (keyDir.find(key) == keyDir.end()) {
         return false;
     } else {
         IndexEntry entry = keyDir[key];
         Record rec; 
 
-        dataFile.readRecord(entry.offset, rec);
+        if (!dataFile.readRecord(entry.offset, rec)) {
+            return false;
+        }
         outValue = rec.value;
 
         return true;
@@ -114,6 +126,8 @@ bool StorageEngine::remove(const std::string& key) {
     if (!isReady) {
         return false;
     }
+
+    std::unique_lock<std::shared_mutex> lock(rwMutex);
 
     if (keyDir.find(key) == keyDir.end()) {
         return false;
@@ -128,6 +142,8 @@ bool StorageEngine::remove(const std::string& key) {
 
 bool StorageEngine::contains(const std::string& key) const {
 
+    std::shared_lock<std::shared_mutex> lock(rwMutex);
+
     if (keyDir.count(key) > 0) {
         return true;
     } else { return false; }
@@ -135,6 +151,7 @@ bool StorageEngine::contains(const std::string& key) const {
 }
 
 void StorageEngine::close() {
+    std::unique_lock<std::shared_mutex> lock(rwMutex);
 
     keyDir.clear();
     dataFile.close();
