@@ -1,60 +1,148 @@
 #include <iostream>
-    #include <filesystem>
-    #include "StorageEngine.hpp"
-    #include "Logger.hpp"
-    
-    int main() {
-        auto& logger = Logger::getInstance();
-        logger.init("logs/server.log");
-    
-        std::cout << "==========================================" << std::endl;
-        std::cout << "     STORAGE ENGINE COMPACTION TESTI      " << std::endl;
-        std::cout << "==========================================" << std::endl;
-    
-        std::string dbPath = "data/compact_test.dat";
-        std::filesystem::remove(dbPath); // Varsa eski testi temizle
-    
-        StorageEngine engine;
-        if (!engine.open(dbPath)) {
-            std::cerr << "Motor acilamadi!" << std::endl;
-            return -1;
-        }
-    
-        // 1. Aynı key'e 1000 kez güncelleme basıyoruz (Diski şişiriyoruz)
-        std::cout << "[*] 'user:1' anahtarina 1000 adet guncelleme yaziliyor..." << std::endl;
-        for (int i = 0; i < 1000; ++i) {
-            engine.put("user:1", "Guncelleme_No_" + std::to_string(i));
-        }
-        // Silinmiş bir çöp veri ekleyelim
-        engine.put("silinecek_key", "Bu cop veri silinecek");
-        engine.remove("silinecek_key");
+#include <string>
+#include <sstream>
+#include <cctype>
+#include "ConfigManager.hpp"
+#include "StorageEngine.hpp"
+#include "Logger.hpp"
 
-        uintmax_t sizeBefore = std::filesystem::file_size(dbPath);
-        std::cout << "[+] Compaction Oncesi Dosya Boyutu: " << sizeBefore << " bytes" << std::endl;
+void printBanner(const std::string& dbPath, int port) {
+    std::cout << "==================================================" << std::endl;
+    std::cout << "        ⚡ YagYz Storage Engine v1.0 ⚡           " << std::endl;
+    std::cout << "==================================================" << std::endl;
+    std::cout << "[+] Veritabani Dosyasi: " << dbPath << std::endl;
+    std::cout << "[+] Port: " << port << std::endl;
+    std::cout << "[+] Komut listesi icin 'HELP' yazabilirsiniz." << std::endl;
+    std::cout << "==================================================\n" << std::endl;
+}
 
-        // 2. Compaction (Sıkıştırma) Çalıştır
-        std::cout << "\n[*] Compaction calistiriliyor..." << std::endl;
-        if (engine.compact()) {
-            std::cout << "[+] Compaction basarili!" << std::endl;
-        } else {
-            std::cerr << "[-] Compaction basarisiz oldu!" << std::endl;
-        }
+void printHelp() {
+    std::cout << "\nKullanilabilir Komutlar:\n"
+              << "  SET <key> <value>   : Anahtara bir deger atar (Bosluklu metinler desteklenir)\n"
+              << "  GET <key>           : Anahtarin degerini getirir\n"
+              << "  DEL <key>           : Anahtari veritabanindan siler\n"
+              << "  CONTAINS <key>      : Anahtarin varligini kontrol eder (YES/NO)\n"
+              << "  COMPACT             : Diskteki cop kayitlari temizler (Dosya boyutunu kucultur)\n"
+              << "  HELP                : Bu yardim menusunu gosterir\n"
+              << "  EXIT / QUIT         : Programi guvenle kapatir\n" << std::endl;
+}
 
-        // 3. Yeni dosya boyutunu ölç
-        uintmax_t sizeAfter = std::filesystem::file_size(dbPath);
-        std::cout << "[+] Compaction Sonrasi Dosya Boyutu: " << sizeAfter << " bytes" << std::endl;
-        std::cout << "[🔥] Disk Tasarrufu: %" << (100 - (sizeAfter * 100 / sizeBefore)) << " yer kazanildi!" << std::endl;
-
-        // 4. Veri sağlam mı kontrol et
-        std::string val;
-        if (engine.get("user:1", val)) {
-            std::cout << "\n[+] Guncel Veri Dogrulandi: user:1 -> " << val << std::endl;
-        }
-
-        if (!engine.contains("silinecek_key")) {
-            std::cout << "[+] Silinen cop verinin kompakt dosyaya GECMEDIGI dogrulandi." << std::endl;
-        }
-
-        engine.close();
-        return 0;
+int main() {
+    // Config Yukleme
+    auto& config = ConfigManager::getInstance();
+    if (!config.load("config/config.json")) {
+        std::cerr << "[-] HATA: Config dosyasi yuklenemedi!" << std::endl;
+        return -1;
     }
+
+    // Logger baslatma
+    std::string logPath = config.get<std::string>("logging", "file_path");
+    Logger::getInstance().init(logPath);
+    Logger::getInstance().log(LogLevel::INFO, "Sunucu ve depolama motoru baslatiliyor...");
+
+    // Storage engine baslatma
+    std::string dbPath = config.get<std::string>("server", "db_path");
+    int port = config.get<int>("server", "port");
+
+    StorageEngine engine;
+    if (!engine.open(dbPath)) {
+        Logger::getInstance().log(LogLevel::ERROR, "Storage Engine baslatilamadi: " + dbPath);
+        std::cerr << "[-] HATA: Storage Engine acilamadi!" << std::endl;
+        return -1;
+    }
+
+    printBanner(dbPath, port);
+
+    // Etkilesimli CLI dongusu
+    std::string line;
+    while (true) {
+        std::cout << "storage-engine> ";
+        if (!std::getline(std::cin, line)) {
+            break; // Ctrl+D veya stream kapandıysa cik
+        }
+
+        // Bos satır girildiyse tekrar sor
+        if (line.empty()) {
+            continue;
+        }
+
+        std::stringstream ss(line);
+        std::string cmd;
+        ss >> cmd;
+
+        // Komutu buyuk harfe cevir
+        for (char& c : cmd) {
+            c = static_cast<char>(std::toupper(c));
+        }
+
+        if (cmd == "SET") {
+            std::string key, value;
+            if (ss >> key) {
+                // Keyde sonraki tum metni value olarak al
+                std::getline(ss >> std::ws, value);
+                if (!value.empty()) {
+                    engine.put(key, value);
+                    std::cout << "OK" << std::endl;
+                } else {
+                    std::cout << "(hata) Eksik deger! Kullanim: SET <key> <value>" << std::endl;
+                }
+            } else {
+                std::cout << "(hata) Kullanim: SET <key> <value>" << std::endl;
+            }
+        } 
+        else if (cmd == "GET") {
+            std::string key, value;
+            if (ss >> key) {
+                if (engine.get(key, value)) {
+                    std::cout << "\"" << value << "\"" << std::endl;
+                } else {
+                    std::cout << "(nil)" << std::endl;
+                }
+            } else {
+                std::cout << "(hata) Kullanim: GET <key>" << std::endl;
+            }
+        } 
+        else if (cmd == "DEL") {
+            std::string key;
+            if (ss >> key) {
+                if (engine.remove(key)) {
+                    std::cout << "OK (1 key silindi)" << std::endl;
+                } else {
+                    std::cout << "(nil) (key bulunamadi)" << std::endl;
+                }
+            } else {
+                std::cout << "(hata) Kullanim: DEL <key>" << std::endl;
+            }
+        } 
+        else if (cmd == "CONTAINS") {
+            std::string key;
+            if (ss >> key) {
+                std::cout << (engine.contains(key) ? "YES" : "NO") << std::endl;
+            } else {
+                std::cout << "(hata) Kullanim: CONTAINS <key>" << std::endl;
+            }
+        } 
+        else if (cmd == "COMPACT") {
+            std::cout << "[*] Compaction islemi baslatiliyor..." << std::endl;
+            if (engine.compact()) {
+                std::cout << "[OK] Compaction basariyla tamamlandi. Cop veriler temizlendi." << std::endl;
+            } else {
+                std::cout << "[-] Compaction basarisiz oldu!" << std::endl;
+            }
+        } 
+        else if (cmd == "HELP") {
+            printHelp();
+        } 
+        else if (cmd == "EXIT" || cmd == "QUIT") {
+            std::cout << "Storage Engine guvenle kapatiliyor. Hoscakalin!" << std::endl;
+            break;
+        } 
+        else {
+            std::cout << "(hata) Bilinmeyen komut: '" << cmd << "'. Yardim icin 'HELP' yazin." << std::endl;
+        }
+    }
+
+    engine.close();
+    Logger::getInstance().log(LogLevel::INFO, "Storage Engine kapatildi.");
+    return 0;
+}
