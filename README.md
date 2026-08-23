@@ -1,134 +1,144 @@
+<div align="center">
+  <p>
+    <b>🌐 Language:</b>
+    <b>English</b> |
+    <a href="README.tr.md">Türkçe</a>
+  </p>
+</div>
+
 # ⚡ Storage Engine
 
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg?style=flat&logo=c%2B%2B)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.20%2B-064F8C.svg?style=flat&logo=cmake)](https://cmake.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Disk tabanlı, yüksek performanslı ve **Bitcask mimarisinden** esinlenerek C++20 ile sıfırdan geliştirilmiş, gömülü bir **Key-Value (Anahtar-Değer) Depolama Motoru**.
+A high-performance, disk-backed, and embedded **Key-Value Storage Engine** built from scratch in C++20, inspired by the **Bitcask architecture**.
 
 ---
 
-## 📖 Proje Hakkında ve Geliştirme Süreci
+## 📖 About the Project & Development Journey
 
-Bu proje, **Düşük Seviyeli Sistem Programlama (Systems Programming)**, **Modern C++20**, **Disk I/O Yönetimi**, **Bellek Modelleri** ve **Eşzamanlılık (Concurrency / Multi-threading)** konularında kendimi derinleştirmek ve pratik yapmak amacıyla tasarlanmıştır.
+This project was conceived to dive deep into **Low-Level Systems Programming**, **Modern C++20**, **Disk I/O Management**, **Memory Models**, and **Concurrency / Multi-threading**.
 
-> 🤖 **Geliştirme Metodolojisi & Yapay Zeka Mentorluğu:**  
-> Bu projenin mimari tasarımı, veri formatları ve algoritmaları oluşturulurken **Yapay Zeka (AI) aktif bir Pair Programming mentoru ve mimari danışman** olarak kullanılmıştır. Kodların tamamı aşama aşama, mantığı kavranarak ve test odaklı şekilde şahsım tarafından yazılmış; AI ise hata ayıklama, kod incelemesi (code review) ve en iyi C++ pratiklerinin (RAII, thread-safety, zero-copy I/O) uygulanmasında kılavuzluk etmiştir.
+> 🤖 **Development Methodology & AI Mentorship:**  
+> Throughout the design and implementation of the storage engine, **Artificial Intelligence (AI) was utilized as an interactive Pair-Programming Mentor and Architectural Advisor**. All code and engineering logic were written, tested, and understood hands-on by myself, with AI providing code review, debugging feedback, and guidance on modern C++ best practices (RAII idioms, thread-safety primitives, and zero-copy I/O).
 
 ---
 
-## 🏗️ Mimari & Çalışma Prensibi (Bitcask Mimarisi)
+## 🏗️ Architecture & Core Principles (Bitcask Model)
 
-Storage Engine, **Append-Only Log (Sıralı Yazma)** ve **In-Memory Hash Indexing (Bellek İçi Hash Haritası)** ilkelerine dayanır:
+Storage Engine operates on the principles of an **Append-Only Log (Sequential Disk Writes)** paired with an **In-Memory Hash Index (KeyDir)**:
 
 ```
-                                  MİMARİ AKIŞ
+                               ARCHITECTURE FLOW
                                   
-     [ İSTEMCİ / CLI ]
+     [ CLIENT / CLI ]
             │
             ├── 1. SET / DEL ──────────────────────────────┐
             │                                              ▼
             │                                ┌───────────────────────────┐
-            │                                │  Sıralı Disk Yazma (I/O)  │
+            │                                │   Sequential Disk I/O     │
             │                                │  Append-Only (.dat file)  │
             │                                └─────────────┬─────────────┘
-            │                                              │ 2. Yeni Offset
+            │                                              │ 2. New Offset
             │                                              ▼
-            │   3. GET (O(1) Hızında)        ┌───────────────────────────┐
-            └─── RAM'den Adresi Oku ───────> │    RAM İndeksi (KeyDir)   │
+            │   3. GET (O(1) Speed)          ┌───────────────────────────┐
+            └─── Read Address from RAM ────> │    RAM Index (KeyDir)     │
                                              │ key -> {offset, val_size} │
                                              └───────────────────────────┘
 ```
 
-### 🌟 Temel Özellikler
+### 🌟 Key Highlights
 
-1. **Append-Only Disk I/O:** Veriler diske sadece dosyanın sonuna sıralı olarak yazılır. Rastgele disk kafası hareketleri (Random Seek) önlenerek maksimum yazma hızı elde edilir.
-2. **$O(1)$ Okuma Performansı (KeyDir):** Tüm anahtarlar ve diskteki konumları (offset) RAM'deki `std::unordered_map` içinde tutulur. Okuma işlemi diskte tek bir `seek` ile anında tamamlanır.
-3. **Çökme Güvenliği (Crash-Resistant Recovery):** Program kapandığında veya elektrik kesildiğinde veri kaybı yaşanmaz. Başlangıçta diskteki binary log taranarak RAM indeksi saniyeler içinde otomatik yeniden inşa edilir.
-4. **Eşzamanlılık & Thread-Safety:** `std::shared_mutex` ve kilit mekanizmaları sayesinde **Çoklu Okuyucu - Tek Yazıcı (Multi-Reader Single-Writer)** modeli uygulanmıştır. Onlarca thread aynı anda veri okuyabilir ve yazabilir.
-5. **Otomatik Sıkıştırma (Compaction / Garbage Collection):** Güncellenen veya silinen (Tombstone) eski çöp veriler diskte birikmez; `COMPACT` komutu ile canlı veriler yeni dosyaya taşınarak disk alanı geri kazanılır.
-6. **Thread-Safe Loglama & JSON Konfigürasyon:** `nlohmann/json` ile merkezi konfigürasyon ve zaman damgalı Singleton `Logger` entegrasyonu.
+1. **Append-Only Sequential Disk I/O:** Writes are strictly appended to the tail of the data file, eliminating costly random disk seeks and leveraging OS page cache for maximum throughput.
+2. **$O(1)$ Read Performance (KeyDir):** All keys and their exact byte offsets are mapped in an in-memory `std::unordered_map`. Every read requires only a single direct disk seek.
+3. **Crash-Resistant Recovery:** In the event of a crash or shutdown, no data is corrupted or lost. During startup, the engine scans the binary log sequentially to rebuild the RAM index in milliseconds.
+4. **Concurrency & Thread-Safety:** Implements a **Multi-Reader Single-Writer** concurrency model using `std::shared_mutex` and dedicated file locks, allowing dozens of concurrent reader threads alongside safe atomic writers.
+5. **Garbage Collection (Compaction):** Obsolete data from updates and deletions (tombstones) are reclaimed on-demand via the `COMPACT` routine, which migrates active records to a defragmented file.
+6. **Thread-Safe Logging & JSON Config:** Integrated with `nlohmann/json` for centralized configuration and a timestamped Singleton `Logger`.
 
 ---
 
-## 📦 Binary Kayıt Formatı (Disk Layout)
+## 📦 Binary Record Format (Disk Layout)
 
-Diskteki her kayıt sabit 21 baytlık bir başlık (Header) ve ardından gelen değişken uzunluktaki anahtar/değer baytlarından oluşur:
+Every record written to disk consists of a packed 21-byte header followed by variable-length key and value payloads:
 
 ```
 ┌───────────┬──────────────┬────────────┬──────────────┬───────────┬──────────────┬────────────────┐
 │ CRC32     │ Timestamp    │ Key Size   │ Value Size   │ Tombstone │ Key Payload  │ Value Payload  │
-│ (4 Byte)  │ (8 Byte)     │ (4 Byte)   │ (4 Byte)     │ (1 Byte)  │ (k_size Byte)│ (v_size Byte)  │
+│ (4 Bytes) │ (8 Bytes)    │ (4 Bytes)  │ (4 Bytes)    │ (1 Byte)  │ (k_size B)   │ (v_size B)     │
 └───────────┴──────────────┴────────────┴──────────────┴───────────┴──────────────┴────────────────┘
 ```
 
 ---
 
-## 📂 Proje Yapısı
+## 📂 Project Structure
 
 ```
 Storage_Engine/
-├── CMakeLists.txt             # Modern CMake derleme dosyası (C++20, FetchContent)
-├── README.md                  # Proje dokümantasyonu
+├── CMakeLists.txt             # Modern CMake build system (C++20, FetchContent)
+├── README.md                  # English documentation
+├── README.tr.md               # Turkish documentation
+├── LICENSE                    # MIT License
 ├── config/
-│   └── config.json            # Port, veritabanı yolu ve log ayarları
-├── include/                   # Header dosyaları
-│   ├── ConfigManager.hpp      # JSON tabanlı Singleton konfigürasyon yöneticisi
-│   ├── DataFile.hpp           # Append-only düşük seviyeli disk I/O sınıfı
-│   ├── Logger.hpp             # Thread-safe dosya & konsol loglayıcı
-│   ├── Record.hpp             # Binary kayıt struct'ı ve serileştirme
-│   └── StorageEngine.hpp      # Ana motor (KeyDir, CRUD, Thread-Safety, Compaction)
+│   └── config.json            # Server port, database path, and logging config
+├── include/                   # Header files
+│   ├── ConfigManager.hpp      # JSON Singleton configuration manager
+│   ├── DataFile.hpp           # Low-level append-only disk I/O manager
+│   ├── Logger.hpp             # Thread-safe file & console logger
+│   ├── Record.hpp             # Binary record definitions & serialization
+│   └── StorageEngine.hpp      # Storage Engine orchestrator (KeyDir, CRUD, Compaction)
 └── src/
-    └── main.cpp               # Etkileşimli REPL / CLI arayüzü
+    └── main.cpp               # Interactive REPL / CLI interface
 ```
 
 ---
 
-## 🛠️ Kurulum ve Derleme
+## 🛠️ Build & Installation
 
-### Gereksinimler
-* C++20 destekleyen bir derleyici (`GCC 10+` veya `Clang 11+`)
+### Prerequisites
+* A C++20 compliant compiler (`GCC 10+` or `Clang 11+`)
 * `CMake` (>= 3.20)
 * `Git`
 
-### Derleme Adımları
+### Build Instructions
 
 ```bash
-# 1. Depoyu klonlayın
+# 1. Clone the repository
 git clone git@github.com:YagYz/Storage_Engine.git
 cd Storage_Engine
 
-# 2. CMake yapılandırmasını oluşturun
+# 2. Configure build directory
 cmake -B build
 
-# 3. Projeyi derleyin
+# 3. Compile the executable
 cmake --build build
 ```
 
 ---
 
-## 🎮 Kullanım (Etkileşimli CLI / REPL)
+## 🎮 Interactive CLI / REPL
 
-Derleme bittikten sonra motoru doğrudan terminalden çalıştırabilirsiniz:
+Once built, launch the storage engine shell directly from your terminal:
 
 ```bash
 ./build/app
 ```
 
-### Desteklenen Komutlar
+### Supported Commands
 
-| Komut | Açıklama | Örnek |
+| Command | Description | Example |
 |---|---|---|
-| `SET <key> <value>` | Anahtara değer atar (boşluklu metinler desteklenir) | `SET user:1 Ahmet Yilmaz` |
-| `GET <key>` | Anahtarın güncel değerini getirir | `GET user:1` |
-| `DEL <key>` | Anahtarı siler (Tombstone ekler) | `DEL user:1` |
-| `CONTAINS <key>` | Anahtarın varlığını sorgular (`YES` / `NO`) | `CONTAINS user:1` |
-| `COMPACT` | Diskteki çöp kayıtları temizler, dosyayı küçültür | `COMPACT` |
-| `HELP` | Kullanılabilir komut listesini gösterir | `HELP` |
-| `EXIT` / `QUIT` | Motoru güvenle kapatır | `EXIT` |
+| `SET <key> <value>` | Sets a key to a value (supports spaced strings) | `SET user:1 John Doe` |
+| `GET <key>` | Retrieves the value of a key | `GET user:1` |
+| `DEL <key>` | Removes a key from the database (appends tombstone) | `DEL user:1` |
+| `CONTAINS <key>` | Checks if a key exists (`YES` / `NO`) | `CONTAINS user:1` |
+| `COMPACT` | Cleans up stale records and shrinks data file size | `COMPACT` |
+| `HELP` | Displays the available command list | `HELP` |
+| `EXIT` / `QUIT` | Gracefully closes the database and exits | `EXIT` |
 
 ---
 
-## 👤 Geliştirici
+## 👤 Author
 
-* **Yağız** - [GitHub Profili](https://github.com/YagYz)
+* **Yağız** - [GitHub Profile](https://github.com/YagYz)
