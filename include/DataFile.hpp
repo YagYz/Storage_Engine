@@ -108,7 +108,7 @@ bool DataFile::readRecord(uint64_t offset, Record& outRecord) {
     }
 
     return true;
-}\
+}
 
 void DataFile::close() {
     if (file.is_open()) {

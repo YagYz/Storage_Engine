@@ -23,3 +23,7 @@ logs/
 *.swo
 *~
 .DS_Store
+
+# Özel Geliştirme Notları (Sadece Yerel)
+ROADMAP.md
+NOTS.md
